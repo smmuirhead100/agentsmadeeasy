@@ -16,8 +16,9 @@ class ToolCall(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-def tool(func):
+def tool(func, end_turn: bool = False):
     func.is_tool = True
+    func.end_turn = end_turn
     return func
 
 

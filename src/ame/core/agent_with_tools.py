@@ -9,7 +9,6 @@ from ame.llms.llm import LLM
 
 _IS_TOOL = "is_tool"
 
-
 class AgentWithTools:
     def __init__(self, llm: LLM, instructions: str,) -> None:
         self._llm = llm
@@ -38,6 +37,12 @@ class AgentWithTools:
                 tool_call.response = tc_response
                 yield tool_call
             tool_calls_message = ChatMessage(role=ChatRole.ASSISTANT, content=tool_calls)
+            
+            # If we have any tools that end the turn, do not re-hit the LLM with a new message.
+            if any(tool.end_turn for tool in self._tools):
+                self._messages.append(tool_calls_message)
+                return
+
             async for chunk_after_tool_calls in self.astream(tool_calls_message):
                 yield chunk_after_tool_calls
 
