@@ -24,7 +24,7 @@ class AgentWithTools:
 
     async def astream(self, chat_message: Optional[ChatMessage] = None) -> AsyncGenerator[str | ToolCall]:
         self._thinking = True
-        
+
         if chat_message:
             self._messages.append(chat_message)
             if len(self._messages) > self._config.max_message_history:
