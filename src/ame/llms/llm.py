@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, List
 
-from agents.core.chat_context import ChatMessage
-from agents.core.tools import Tool, ToolCall
+from ame.core.chat_context import ChatMessage
+from ame.core.tools import Tool, ToolCall
 
 
 class LLM(ABC):
