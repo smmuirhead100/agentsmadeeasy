@@ -1,6 +1,6 @@
 [project]
 name = "agents-made-easy"
-version = "0.1.3"
+version = "0.1.4"
 description = "Reusable lightweight AI agent utilities"
 readme = "README.md"
 requires-python = ">=3.13"
