@@ -1,22 +1,35 @@
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, List, Optional
 import asyncio
 import inspect
 
-from pydantic import create_model
+from pydantic import BaseModel, create_model
 from ame.core.chat_context import ChatMessage, ChatRole
 from ame.core.tools import Tool, ToolCall
 from ame.llms.llm import LLM
 
 _IS_TOOL = "is_tool"
 
+
+class AgentWithToolsConfig(BaseModel):
+    max_message_history: int = 10
+
+
 class AgentWithTools:
-    def __init__(self, llm: LLM, instructions: str) -> None:
+    def __init__(self, llm: LLM, instructions: str, config: AgentWithToolsConfig = AgentWithToolsConfig()) -> None:
         self._llm = llm
         self._messages: List[ChatMessage] = [ChatMessage(role=ChatRole.SYSTEM, content=instructions)]
+        self._config = config
         self._tools = self._get_tools_from_decorated_methods()
+        self._thinking = False
 
-    async def astream(self, chat_message: ChatMessage) -> AsyncGenerator[str | ToolCall]:
-        self._messages.append(chat_message)
+    async def astream(self, chat_message: Optional[ChatMessage] = None) -> AsyncGenerator[str | ToolCall]:
+        self._thinking = True
+        
+        if chat_message:
+            self._messages.append(chat_message)
+            if len(self._messages) > self._config.max_message_history:
+                self._messages = self._messages[-self._config.max_message_history:]
+
         response = ""
         tool_calls: List[ToolCall] = []
 
@@ -41,10 +54,12 @@ class AgentWithTools:
             # If we have any tools that end the turn, do not re-hit the LLM with a new message.
             if any(tool.end_turn for tool in self._tools):
                 self._messages.append(tool_calls_message)
+                self._thinking = False
                 return
 
             async for chunk_after_tool_calls in self.astream(tool_calls_message):
                 yield chunk_after_tool_calls
+            self._thinking = False
 
     def update_instructions(self, instructions: str) -> None:
         system_message = next(m for m in self._messages if m.role == ChatRole.SYSTEM)

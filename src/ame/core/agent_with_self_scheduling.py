@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 import asyncio
+import os
+import subprocess
 from typing import AsyncGenerator, List
 
 from pydantic import BaseModel
@@ -16,6 +18,9 @@ You are a helpful assistant. You will be provided with documentation and a list 
 There is one special directory in your filesystem called "skills". This directory contains files that describe the skills you can perform.
 All other files in the filesystem are arbitrarily organized by you and you can read and write to them.
 
+Here is a high level overview of the filesystem:
+{filesystem_overview}
+
 # Events
 Events are things that have happened in the real world. Below is a list of events that have occurred since the last time you were run:
 {events}
@@ -29,11 +34,11 @@ class Event(BaseModel):
     content: str
 
 
-class AgentWithSelfScheduling(AgentWithTools):
-    def __init__(self, llm: LLM = DEFAULT_LLM, file_path) -> None:
-        super().__init__(llm=llm, instructions=INSTRUCTIONS.format(current_time=datetime.now(), events=""))
+class LongRunningAgentWithFilesystem(AgentWithTools):
+    def __init__(self, llm: LLM = DEFAULT_LLM, root_file_path: str = "/") -> None:
+        super().__init__(llm=llm, instructions=INSTRUCTIONS.format(current_time=datetime.now(), events="", filesystem_overview=""))
         self._scheduled_tasks = []
-
+        self._root_file_path = root_file_path
         self._events: List[Event] = []
         self._events_queue: asyncio.Queue[Event] = asyncio.Queue()
         self._events_queue.put_nowait(Event(time=datetime.now(), content="You are now running."))
@@ -59,17 +64,60 @@ class AgentWithSelfScheduling(AgentWithTools):
 
         return "\n".join(formatted_events)
 
+    def _format_filesystem_overview(self) -> str:
+        """
+        Format the filesystem overview into a readable string only covering the root directory and the FIRST TWO levels of subdirectories.
+        """
+        lines = []
+        try:
+            # Level 0: Root directory contents
+            root_items = sorted(os.listdir(self._root_file_path))
+            for item in root_items:
+                item_path = os.path.join(self._root_file_path, item)
+                is_dir = os.path.isdir(item_path)
+                lines.append(f"{item}{'/' if is_dir else ''}")
+
+                # Level 1: First level subdirectories
+                if is_dir:
+                    try:
+                        level1_items = sorted(os.listdir(item_path))
+                        for subitem in level1_items:
+                            subitem_path = os.path.join(item_path, subitem)
+                            is_subdir = os.path.isdir(subitem_path)
+                            lines.append(f"  {subitem}{'/' if is_subdir else ''}")
+
+                            # Level 2: Second level subdirectories
+                            if is_subdir:
+                                try:
+                                    level2_items = sorted(os.listdir(subitem_path))
+                                    for subsubitem in level2_items:
+                                        subsubitem_path = os.path.join(subitem_path, subsubitem)
+                                        is_subsubdir = os.path.isdir(subsubitem_path)
+                                        lines.append(f"    {subsubitem}{'/' if is_subsubdir else ''}")
+                                except (PermissionError, OSError):
+                                    lines.append(f"    [Error reading directory]")
+                    except (PermissionError, OSError):
+                        lines.append(f"  [Error reading directory]")
+
+            return "\n".join(lines) if lines else "Empty directory"
+        except (PermissionError, OSError) as e:
+            return f"Error reading filesystem: {e}"
+
     async def astream(self, *args, **kwargs) -> AsyncGenerator[str | ToolCall]:
         events_str = self._format_events()
-        self.update_instructions(INSTRUCTIONS.format(current_time=datetime.now(), events=events_str))
+        filesystem_overview_str = self._format_filesystem_overview()
+        self.update_instructions(INSTRUCTIONS.format(current_time=datetime.now(), events=events_str, filesystem_overview=filesystem_overview_str))
         system_message = next(m for m in self._messages if m.role == ChatRole.SYSTEM)
         print(system_message.content)
         async for chunk in super().astream(*args, **kwargs):
             yield chunk
 
-    def add_event(self, event: Event) -> None:
+    async def add_event(self, event: Event) -> None:
         self._events_queue.put_nowait(event)
         self._events.append(event)
+        if not self._thinking:
+            async for chunk in self.astream():
+                yield chunk
 
     @tool()
     async def schedule_self(self, schedule_in_seconds: int, context: str) -> str:
@@ -90,7 +138,16 @@ class AgentWithSelfScheduling(AgentWithTools):
     @tool()
     async def run_bash_command(self, command: str) -> str:
         """
+        This tool enables you to run a bash command on the filesystem. Use this tool if you need to perform a task that requires a bash command.
+
+        :params:
+            command: The bash command to run.
+        :returns:
+            The output of the bash command.
         """
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=self._root_file_path)
+        print(result.stdout)
+        return f"Output of the bash command: {result.stdout}"
 
     async def _run_scheduled_tasks(self):
         while True:
