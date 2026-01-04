@@ -16,8 +16,13 @@ load_dotenv()
 
 
 class LLM(BaseLLM):
-    def __init__(self, model: GeminiLLMModel = GeminiLLMModel.GEMINI_2_5_FLASH) -> None:
+    def __init__(
+        self,
+        model: GeminiLLMModel = GeminiLLMModel.GEMINI_3_FLASH_PREVIEW,
+        enable_search: bool = False,
+        ) -> None:
         self.model = model.value
+        self.enable_search = enable_search
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
@@ -32,11 +37,16 @@ class LLM(BaseLLM):
 
         # Prepare tools configuration
         function_declarations = [tool_to_gemini_function_declaration(t) for t in tools]
-        gemini_tools = types.Tool(function_declarations=function_declarations) if function_declarations else None
+        gemini_tools = [types.Tool(function_declarations=function_declarations) if function_declarations else None]
+        
+        # TODO: This breaks with message: `Tool use with function calling is unsupported`
+        # if self.enable_search:  # https://ai.google.dev/gemini-api/docs/google-search
+        #     grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        #     gemini_tools.append(grounding_tool)
 
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
-            tools=[gemini_tools] if gemini_tools else None,
+            tools=gemini_tools if gemini_tools else None,
             temperature=1.0,
         )
 
@@ -48,7 +58,6 @@ class LLM(BaseLLM):
         )
 
         current_tool_calls = []
-        has_text_content = False
 
         async for chunk in stream:
             # Check if this chunk has any parts
@@ -58,7 +67,6 @@ class LLM(BaseLLM):
             for part in chunk.candidates[0].content.parts:
                 # Handle text content
                 if hasattr(part, 'text') and part.text:
-                    has_text_content = True
                     yield part.text
 
                 # Handle function calls

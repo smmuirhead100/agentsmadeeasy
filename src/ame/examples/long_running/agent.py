@@ -48,7 +48,7 @@ Here is a list of events that have occurred:
 {events}
 """
 
-DEFAULT_LLM = GeminiLLM()
+DEFAULT_LLM = GeminiLLM(enable_search=True)
 
 
 class LongRunningAgentWithFilesystem(AgentWithTools):

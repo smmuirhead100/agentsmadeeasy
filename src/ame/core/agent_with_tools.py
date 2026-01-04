@@ -28,7 +28,11 @@ class AgentWithTools:
         if chat_message:
             self._messages.append(chat_message)
             if len(self._messages) > self._config.max_message_history:
-                self._messages = self._messages[-self._config.max_message_history:]
+                # Always preserve the system message (first message) when trimming
+                system_message = next((m for m in self._messages if m.role == ChatRole.SYSTEM), None)
+                non_system_messages = [m for m in self._messages if m.role != ChatRole.SYSTEM]
+                # Keep system message + last (max_message_history - 1) non-system messages
+                self._messages = ([system_message] if system_message else []) + non_system_messages[-(self._config.max_message_history - 1):]
 
         response = ""
         tool_calls: List[ToolCall] = []
