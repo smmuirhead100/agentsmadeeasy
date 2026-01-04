@@ -5,7 +5,7 @@ import asyncio
 
 
 async def main():
-    llm = GeminiLLM(model="gemini-2.5-flash")
+    llm = GeminiLLM()
     agent = AgentWithTools(llm=llm, instructions="You are a helpful assistant that can answer questions and help with tasks.")
 
     async for chunk in agent.astream(chat_message=ChatMessage(role="user", content="What is the capital of France?")):
