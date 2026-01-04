@@ -10,6 +10,15 @@ def chat_messages_to_gemini_system_and_contents(messages: list[ChatMessage]) -> 
         raise ValueError("No system prompt found!")
 
     gemini_contents = []
+    # Gemini requires a user message, so if there is no user message, add an empty one at the beginning.
+    if not any(m.role == ChatRole.USER for m in messages):
+        gemini_contents.append(
+            gemini_types.Content(
+                role="user",
+                parts=[gemini_types.Part(text="")]
+            )
+        )
+
     for msg in messages:
         if msg.role == ChatRole.SYSTEM:
             # Skip system messages as they're extracted separately
