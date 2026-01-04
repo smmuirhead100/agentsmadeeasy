@@ -59,7 +59,7 @@ class AgentWithTools:
 
             async for chunk_after_tool_calls in self.astream(tool_calls_message):
                 yield chunk_after_tool_calls
-            self._thinking = False
+        self._thinking = False
 
     def update_instructions(self, instructions: str) -> None:
         system_message = next(m for m in self._messages if m.role == ChatRole.SYSTEM)

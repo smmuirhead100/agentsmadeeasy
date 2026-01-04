@@ -1,8 +1,10 @@
 from datetime import datetime
 import os
-from ame.core.agent_with_self_scheduling import Event, LongRunningAgentWithFilesystem
-from ame.core.chat_context import ChatMessage, ChatRole
 import asyncio
+import uuid
+
+from ame.examples.long_running.agent import LongRunningAgentWithFilesystem
+from ame.examples.long_running.utils import Event
 
 
 async def main():
@@ -12,7 +14,7 @@ async def main():
     agent = LongRunningAgentWithFilesystem(root_file_path=path_to_example_directory)
     while True:
         user_input = await asyncio.to_thread(input, "You: ")
-        event = Event(time=datetime.now(), content=f"Text message from 714-742-2219: '{user_input}'")
+        event = Event(id=str(uuid.uuid4()), time=datetime.now(), content=f"Text message from 714-742-2219: '{user_input}'", metadata={"from": "714-742-2219", "to": "714-742-2219", "type": "text", "message": user_input})
         await agent.add_event(event)
         print("-" * 100)
 if __name__ == "__main__":

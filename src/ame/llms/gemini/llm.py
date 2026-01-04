@@ -1,5 +1,6 @@
 import os
 from typing import AsyncGenerator, List
+import uuid
 
 from google import genai
 from google.genai import types
@@ -70,7 +71,7 @@ class LLM(BaseLLM):
                         metadata['thought_signature'] = part.thought_signature
 
                     tool_call = ToolCall(
-                        id=f"{func_call.name}_{len(current_tool_calls)}",
+                        id=str(func_call.id) if func_call.id else str(uuid.uuid4()),
                         name=func_call.name,
                         args=dict(func_call.args) if func_call.args else {},
                         metadata=metadata if metadata else None

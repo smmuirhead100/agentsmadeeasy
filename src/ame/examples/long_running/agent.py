@@ -1,126 +1,63 @@
 from datetime import datetime, timedelta
 import asyncio
-import os
 import subprocess
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, List, Optional
+from typing_extensions import override
+import uuid
 
-from pydantic import BaseModel
 from ame.core.agent_with_tools import AgentWithTools
 from ame.core.chat_context import ChatMessage, ChatRole
 from ame.core.tools import ToolCall, tool
 from ame.llms.gemini.llm import LLM as GeminiLLM
 from ame.llms.llm import LLM
+from .utils import Event, format_events, format_filesystem_overview
 
 INSTRUCTIONS = """
-You are a helpful assistant. You will be provided with documentation and a list of events. Based on the events, you will use the documentation to perform tasks. The current time is {current_time}.
+# Identity
+You are a generalized helpful assistant. You will be provided with a list of events. Based on the events, you will use the filesystem and tools to perform tasks. The current time in UTC is {current_time}.
 
-# Documentation
-There is one special directory in your filesystem called "skills". This directory contains files that describe the skills you can perform.
-All other files in the filesystem are arbitrarily organized by you and you can read and write to them.
+# Filesystem
+Everything you know is in your own filesystem. You are encouraged to leverage the filesystem to perform tasks, as well as update the filesystem to reflect your knowledge.
 
-Here is a high level overview of the filesystem:
+IMPORTANT: Any important events, knowledge, or tasks that you need to remember, you should update the filesystem to reflect your knowledge.
+
+To give you an idea of the filesystem, here is a high-level overview of the filesystem:
 {filesystem_overview}
 
+# Skills
+There is one special directory in your filesystem called "skills". This directory contains files that describe different skills you can perform.
+You are encouraged to use the skills to perform tasks, as well as update the skills to reflect your knowledge.
+You may also create new skills to perform tasks that are not already covered by the existing skills.
+
+The skills directory must have the following structure:
+```
+skills/
+|-- <skill_name>/
+|   |-- SKILL.md  # This file contains the skill description. Always read this file before using the skill.
+|   |-- <skill_name_example>.md  # Helper files that demonstrate how to use the skill.
+|   |-- <skill_name_specification>.md  # Specific subset of the skill that is relevant to the task at hand.
+|-- <skill_name_2>/
+|   |-- SKILL.md
+|   |-- <skill_name_2_example>.md
+|   |-- <skill_name_2_specification>.md
+|-- ...
+```
+
 # Events
-Events are things that have happened in the real world. Below is a list of events that have occurred since the last time you were run:
+Here is a list of events that have occurred:
 {events}
 """
 
 DEFAULT_LLM = GeminiLLM()
 
 
-class Event(BaseModel):
-    time: datetime
-    content: str
-
-
 class LongRunningAgentWithFilesystem(AgentWithTools):
     def __init__(self, llm: LLM = DEFAULT_LLM, root_file_path: str = "/") -> None:
         super().__init__(llm=llm, instructions=INSTRUCTIONS.format(current_time=datetime.now(), events="", filesystem_overview=""))
-        self._scheduled_tasks = []
         self._root_file_path = root_file_path
-        self._events: List[Event] = []
         self._events_queue: asyncio.Queue[Event] = asyncio.Queue()
-        self._events_queue.put_nowait(Event(time=datetime.now(), content="You are now running."))
-        asyncio.create_task(self._run_scheduled_tasks())
-
-    def _format_events(self) -> str:
-        """Format events from the queue into a readable string."""
-        events_list = []
-        while not self._events_queue.empty():
-            events_list.append(self._events_queue.get_nowait())
-
-        if not events_list:
-            return ""
-
-        time_str = events_list[0].time.strftime("%Y-%m-%d %H:%M:%S")
-        return f"- [{time_str}] {events_list[0].content}"
-
-    def _format_filesystem_overview(self) -> str:
-        """
-        Format the filesystem overview into a readable string only covering the root directory and the FIRST TWO levels of subdirectories.
-        """
-        lines = []
-        try:
-            # Level 0: Root directory contents
-            root_items = sorted(os.listdir(self._root_file_path))
-            for item in root_items:
-                item_path = os.path.join(self._root_file_path, item)
-                is_dir = os.path.isdir(item_path)
-                lines.append(f"{item}{'/' if is_dir else ''}")
-
-                # Level 1: First level subdirectories
-                if is_dir:
-                    try:
-                        level1_items = sorted(os.listdir(item_path))
-                        for subitem in level1_items:
-                            subitem_path = os.path.join(item_path, subitem)
-                            is_subdir = os.path.isdir(subitem_path)
-                            lines.append(f"  {subitem}{'/' if is_subdir else ''}")
-
-                            # Level 2: Second level subdirectories
-                            if is_subdir:
-                                try:
-                                    level2_items = sorted(os.listdir(subitem_path))
-                                    for subsubitem in level2_items:
-                                        subsubitem_path = os.path.join(subitem_path, subsubitem)
-                                        is_subsubdir = os.path.isdir(subsubitem_path)
-                                        lines.append(f"    {subsubitem}{'/' if is_subsubdir else ''}")
-                                except (PermissionError, OSError):
-                                    lines.append(f"    [Error reading directory]")
-                    except (PermissionError, OSError):
-                        lines.append(f"  [Error reading directory]")
-
-            return "\n".join(lines) if lines else "Empty directory"
-        except (PermissionError, OSError) as e:
-            return f"Error reading filesystem: {e}"
-
-    async def astream(self, *args, **kwargs) -> AsyncGenerator[str | ToolCall]:
-        events_str = self._format_events()
-        filesystem_overview_str = self._format_filesystem_overview()
-        self.update_instructions(INSTRUCTIONS.format(current_time=datetime.now(), events=events_str, filesystem_overview=filesystem_overview_str))
-        async for chunk in super().astream(*args, **kwargs):
-            yield chunk
-
-    async def add_event(self, event: Event) -> None:
-        self._events_queue.put_nowait(event)
-        self._events.append(event)
-
-    @tool()
-    async def schedule_self(self, schedule_in_seconds: int, context: str) -> str:
-        """
-        This tool enables you to schedule yourself to run at a particular time. Use this tool if you do not think you should take any action but may want to in a bit.
-
-        :params:
-            schedule_in_seconds: In how many seconds will you schedule yourself to run?
-            context: A string describing the context of the scheduled task. This will be passed as context to yourself when the time comes to run the scheduled task.
-        :returns:
-            A string describing the scheduled task and the time it will run at.
-        """
-        now = datetime.now()
-        scheduled_time = now + timedelta(seconds=schedule_in_seconds)
-        self._scheduled_tasks.append((scheduled_time, context))
-        return f"Scheduled self to run at {scheduled_time}"
+        self._events_queue.put_nowait(Event(id=str(uuid.uuid4()), time=datetime.now(), content="You are now running.", metadata={"type": "system", "message": "You are now running."}))
+        asyncio.create_task(self._run())
 
     @tool()
     async def run_bash_command(self, command: str) -> str:
@@ -135,15 +72,24 @@ class LongRunningAgentWithFilesystem(AgentWithTools):
         result = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=self._root_file_path)
         return f"Output of the bash command: {result.stdout}"
 
-    async def _run_scheduled_tasks(self):
+    async def add_event(self, event: Event) -> None:
+        self._events_queue.put_nowait(event)
+
+    async def _run(self):
         while True:
-            now = datetime.now()
-            for scheduled_time, context in self._scheduled_tasks:
-                if scheduled_time <= now:
-                    self._scheduled_tasks.remove((scheduled_time, context))
-                    async for chunk in self.astream(chat_message=ChatMessage(role=ChatRole.ASSISTANT, content=f"Running scheduled task at {scheduled_time}. Here is your context: {context}.")):
-                        pass
+            print(f"Thinking: {self._thinking}")
+            print(f"Events queue size: {self._events_queue.qsize()}")
+
             if not self._thinking and self._events_queue.qsize() > 0:
+                # Format the system instructions with the latest events and filesystem overview
+                events_str = format_events(self._events_queue)
+                filesystem_overview_str = format_filesystem_overview(self._root_file_path)
+                self.update_instructions(INSTRUCTIONS.format(current_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), events=events_str, filesystem_overview=filesystem_overview_str))
+                self._messages = [m for m in self._messages if m.role == ChatRole.SYSTEM]
+
+                print(f"================")
+                print(next(m for m in self._messages if m.role == ChatRole.SYSTEM).content)
+                print(f"================")
                 async for chunk in self.astream():
-                    pass
+                    print(chunk)
             await asyncio.sleep(1)
