@@ -10,7 +10,7 @@ from ame.llms.llm import LLM
 _IS_TOOL = "is_tool"
 
 class AgentWithTools:
-    def __init__(self, llm: LLM, instructions: str,) -> None:
+    def __init__(self, llm: LLM, instructions: str) -> None:
         self._llm = llm
         self._messages: List[ChatMessage] = [ChatMessage(role=ChatRole.SYSTEM, content=instructions)]
         self._tools = self._get_tools_from_decorated_methods()
@@ -37,7 +37,7 @@ class AgentWithTools:
                 tool_call.response = tc_response
                 yield tool_call
             tool_calls_message = ChatMessage(role=ChatRole.ASSISTANT, content=tool_calls)
-            
+
             # If we have any tools that end the turn, do not re-hit the LLM with a new message.
             if any(tool.end_turn for tool in self._tools):
                 self._messages.append(tool_calls_message)
@@ -45,6 +45,10 @@ class AgentWithTools:
 
             async for chunk_after_tool_calls in self.astream(tool_calls_message):
                 yield chunk_after_tool_calls
+
+    def update_instructions(self, instructions: str) -> None:
+        system_message = next(m for m in self._messages if m.role == ChatRole.SYSTEM)
+        system_message.content = instructions
 
     async def _execute_tool_call(self, tool_call: ToolCall) -> str:
         method_name = tool_call.name
@@ -64,9 +68,11 @@ class AgentWithTools:
                 sig = inspect.signature(attr)
                 fields = {name: (param.annotation, ...) for name, param in sig.parameters.items() if name != "self"}
                 input_schema = create_model(f"{attr.__name__}Input", **fields) if fields else create_model(f"{attr.__name__}Input")
+                end_turn = getattr(attr, "end_turn", False)
                 tools.append(Tool(
                     name=attr.__name__,
                     description=attr.__doc__ or "",
                     input_schema=input_schema,
+                    end_turn=end_turn,
                 ))
         return tools

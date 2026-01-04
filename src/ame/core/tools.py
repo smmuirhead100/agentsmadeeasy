@@ -6,6 +6,7 @@ class Tool(BaseModel):
     name: str
     description: str
     input_schema: Type[BaseModel]
+    end_turn: bool = False
 
 
 class ToolCall(BaseModel):
@@ -16,10 +17,18 @@ class ToolCall(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-def tool(func, end_turn: bool = False):
-    func.is_tool = True
-    func.end_turn = end_turn
-    return func
+def tool(func=None, end_turn: bool = False):
+    def decorator(f):
+        f.is_tool = True
+        f.end_turn = end_turn
+        return f
+
+    if func is None:
+        # Called with arguments: @tool(end_turn=True)
+        return decorator
+    else:
+        # Called without arguments: @tool
+        return decorator(func)
 
 
 # class User(BaseModel):
