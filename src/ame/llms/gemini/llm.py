@@ -20,7 +20,7 @@ class LLM(BaseLLM):
         self,
         model: GeminiLLMModel = GeminiLLMModel.GEMINI_3_FLASH_PREVIEW,
         enable_search: bool = False,
-        ) -> None:
+    ) -> None:
         self.model = model.value
         self.enable_search = enable_search
         api_key = os.environ.get("GEMINI_API_KEY")
