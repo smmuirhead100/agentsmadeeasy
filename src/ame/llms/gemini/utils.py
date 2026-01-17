@@ -120,16 +120,54 @@ def chat_messages_to_gemini_system_and_contents(messages: list[ChatMessage]) -> 
     return system_prompt, gemini_contents
 
 
+def _clean_schema_for_gemini(schema: dict) -> dict:
+    """Recursively clean a JSON schema to remove fields unsupported by Gemini."""
+    if not isinstance(schema, dict):
+        return schema
+
+    # Fields that Gemini doesn't support
+    unsupported_keys = {"additionalProperties", "additional_properties", "$defs", "title", "default"}
+
+    cleaned = {}
+    for key, value in schema.items():
+        if key in unsupported_keys:
+            continue
+
+        # Handle anyOf - simplify by taking the first non-null type
+        if key == "anyOf" and isinstance(value, list):
+            # Filter out null types and take the first real type
+            non_null_types = [v for v in value if not (isinstance(v, dict) and v.get("type") == "null")]
+            if non_null_types:
+                # Merge the first non-null type into the parent
+                cleaned.update(_clean_schema_for_gemini(non_null_types[0]))
+            continue
+
+        # Recursively clean nested structures
+        if isinstance(value, dict):
+            cleaned[key] = _clean_schema_for_gemini(value)
+        elif isinstance(value, list):
+            cleaned[key] = [_clean_schema_for_gemini(item) if isinstance(item, dict) else item for item in value]
+        else:
+            cleaned[key] = value
+
+    return cleaned
+
+
 def tool_to_gemini_function_declaration(tool: Tool) -> dict:
     """Convert a Tool to Gemini function declaration format."""
     schema = tool.input_schema.model_json_schema()
+
+    # Clean properties to remove unsupported Gemini fields
+    cleaned_properties = {}
+    for prop_name, prop_schema in schema.get("properties", {}).items():
+        cleaned_properties[prop_name] = _clean_schema_for_gemini(prop_schema)
 
     return {
         "name": tool.name,
         "description": tool.description,
         "parameters": {
             "type": schema.get("type", "object"),
-            "properties": schema.get("properties", {}),
+            "properties": cleaned_properties,
             "required": schema.get("required", [])
         }
     }

@@ -29,7 +29,7 @@ class LLM(BaseLLM):
             max_tokens=1024,
             system=system,
             messages=messages,
-            model=self.model,
+            model=self.model.value,
             stream=True,
             tools=[tool_to_anthropic_tool(t) for t in tools]
         )

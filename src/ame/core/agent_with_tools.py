@@ -11,7 +11,7 @@ _IS_TOOL = "is_tool"
 
 
 class AgentWithToolsConfig(BaseModel):
-    max_message_history: int = 10
+    max_message_history: int = 50
 
 
 class AgentWithTools:

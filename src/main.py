@@ -2,9 +2,12 @@ from datetime import datetime
 import os
 import asyncio
 import uuid
+import logging
 
 from ame.examples.long_running.agent import LongRunningAgentWithFilesystem
 from ame.examples.long_running.utils import Event
+
+logger = logging.getLogger(__name__)
 
 
 async def main():

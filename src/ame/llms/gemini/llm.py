@@ -19,8 +19,10 @@ class LLM(BaseLLM):
     def __init__(
         self,
         model: GeminiLLMModel = GeminiLLMModel.GEMINI_3_FLASH_PREVIEW,
+        enable_search: bool = False,
     ) -> None:
         self.model = model.value
+        self.enable_search = enable_search
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
@@ -35,7 +37,14 @@ class LLM(BaseLLM):
 
         # Prepare tools configuration
         function_declarations = [tool_to_gemini_function_declaration(t) for t in tools]
-        gemini_tools = [types.Tool(function_declarations=function_declarations) if function_declarations else None]
+        gemini_tools = [types.Tool(function_declarations=function_declarations)] if function_declarations else None
+        
+        # TODO: This breaks with message: `Tool use with function calling is unsupported`
+        if self.enable_search:  # https://ai.google.dev/gemini-api/docs/google-search
+            grounding_tool = types.Tool(google_search=types.GoogleSearch())
+            if gemini_tools:
+                raise ValueError("Google search tool cannot be used with other tools. The API will return an error: `Tool use with function calling is unsupported`.")
+            gemini_tools = [grounding_tool]
 
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,

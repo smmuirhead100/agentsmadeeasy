@@ -1,4 +1,0 @@
-[2026-01-04 10:43:16] Assistant initialized. No tasks found in events.
-[2026-01-04 10:45:00] Note: pdftotext not found in PATH. PDF skill might be broken.
-[2026-01-04 11:10:00] Updated skills/pdf/extract_text.sh to include gs as a fallback for pdftotext.
-[2026-01-04 11:10:00] Updated skills/pdf/SKILL.md to reflect tool requirements.
