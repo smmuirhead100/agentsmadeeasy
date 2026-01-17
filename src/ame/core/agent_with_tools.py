@@ -55,12 +55,6 @@ class AgentWithTools:
                 yield tool_call
             tool_calls_message = ChatMessage(role=ChatRole.ASSISTANT, content=tool_calls)
 
-            # If we have any tools that end the turn, do not re-hit the LLM with a new message.
-            if any(tool.end_turn for tool in self._tools):
-                self._messages.append(tool_calls_message)
-                self._thinking = False
-                return
-
             async for chunk_after_tool_calls in self.astream(tool_calls_message):
                 yield chunk_after_tool_calls
         self._thinking = False
@@ -87,11 +81,9 @@ class AgentWithTools:
                 sig = inspect.signature(attr)
                 fields = {name: (param.annotation, ...) for name, param in sig.parameters.items() if name != "self"}
                 input_schema = create_model(f"{attr.__name__}Input", **fields) if fields else create_model(f"{attr.__name__}Input")
-                end_turn = getattr(attr, "end_turn", False)
                 tools.append(Tool(
                     name=attr.__name__,
                     description=attr.__doc__ or "",
                     input_schema=input_schema,
-                    end_turn=end_turn,
                 ))
         return tools
